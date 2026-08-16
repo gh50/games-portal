@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.env
+*.log
+vm/data/*
+!vm/data/.gitkeep
+vm/logs/*
+!vm/logs/.gitkeep
+
+__pycache__/
+*.pyc
