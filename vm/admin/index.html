@@ -7,7 +7,7 @@
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
   <title>Games Server Admin</title>
-  <link rel="stylesheet" href="/admin.css?v=20260816-6">
+  <link rel="stylesheet" href="/admin.css?v=20260816-7">
 </head>
 <body>
   <main class="wrap">
@@ -20,11 +20,26 @@
 
     <section id="dashboard" class="hidden">
       <div class="toolbar"><span id="updated">Loading…</span><button id="refresh" class="ghost">Refresh</button></div>
-      <div id="apps" class="apps"></div>
+      <div class="dashboard-grid">
+        <div id="apps" class="apps"></div>
+        <aside id="serverPanel" class="panel server-panel" aria-label="Server and VM status">
+          <div class="server-title"><div><span class="eyebrow">INFRASTRUCTURE</span><h2>Server / VM</h2></div><span id="vmHealth" class="health-pill">Checking</span></div>
+          <div class="vm-metrics">
+            <div class="vm-metric"><span>Load</span><strong id="vmLoad">—</strong><small id="vmCpu">—</small></div>
+            <div class="vm-metric"><span>Memory</span><strong id="vmMemory">—</strong><small id="vmMemoryDetail">—</small><div class="meter"><i id="vmMemoryBar"></i></div></div>
+            <div class="vm-metric"><span>Disk</span><strong id="vmDisk">—</strong><small id="vmDiskDetail">—</small><div class="meter"><i id="vmDiskBar"></i></div></div>
+            <div class="vm-metric"><span>VM uptime</span><strong id="vmUptime">—</strong></div>
+          </div>
+          <div class="server-section"><h3>Services</h3><div id="vmServices" class="status-list"></div></div>
+          <div class="server-section"><h3>Public endpoints</h3><div id="vmEndpoints" class="status-list"></div></div>
+          <div class="server-section"><h3>Platform</h3><dl class="platform-list"><div><dt>OS</dt><dd id="vmOs">—</dd></div><div><dt>Architecture</dt><dd id="vmArch">—</dd></div><div><dt>Node.js</dt><dd id="vmNode">—</dd></div><div><dt>PM2</dt><dd id="vmPm2">—</dd></div><div><dt>nginx</dt><dd id="vmNginx">—</dd></div></dl></div>
+          <p class="server-note">Memory uses Linux <code>MemAvailable</code>, so filesystem cache is not counted as unavailable RAM.</p>
+        </aside>
+      </div>
     </section>
   </main>
 
   <template id="appTemplate"><article class="panel app"><div class="app-head"><div><div class="status-row"><span class="dot"></span><span class="state">Unknown</span></div><h2 class="name"></h2><a class="url" target="_blank" rel="noreferrer"></a></div><div class="actions"><button class="deploy">Deploy latest</button><button class="restart ghost">Restart</button></div></div><div class="meta"><div><span>Current commit</span><strong class="commit">—</strong></div><div><span>Last deployed</span><strong class="deployedAt">—</strong></div></div><div class="log-section"><button type="button" class="log-toggle" aria-expanded="false"><span class="log-arrow" aria-hidden="true">▸</span><span>Deployment log</span></button><div class="log-panel hidden"><pre class="log">Open to load log.</pre></div></div></article></template>
-  <script src="/admin.js?v=20260816-6"></script>
+  <script src="/admin.js?v=20260816-7"></script>
 </body>
 </html>

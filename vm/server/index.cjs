@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { DatabaseSync } = require('node:sqlite');
+const { getVmSnapshot } = require('./telemetry.cjs');
 
 const root = process.env.GAMES_PORTAL_ROOT || '/home/ubuntu/games-portal';
 const host = process.env.HOST || '127.0.0.1';
@@ -105,7 +106,7 @@ const server=http.createServer(async(req,res)=>{
     if(!url.pathname.startsWith('/api/admin/'))return json(res,404,{error:'Not found'});
     if(!sessionValid(req))return unauthorized(res);
     if(method==='POST'&&url.pathname==='/api/admin/logout')return json(res,200,{ok:true},{'Set-Cookie':`${adminCookie}=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Strict`});
-    if(method==='GET'&&url.pathname==='/api/admin/status')return json(res,200,{service:'games-portal-admin',host:'admin.129.146.112.160.sslip.io',apps:Object.keys(targets).map(appSnapshot)});
+    if(method==='GET'&&url.pathname==='/api/admin/status'){const vm=await getVmSnapshot(root,targets);return json(res,200,{service:'games-portal-admin',host:'admin.129.146.112.160.sslip.io',apps:Object.keys(targets).map(appSnapshot),vm});}
     if(method==='GET'&&url.pathname==='/api/admin/users'){const q=`%${String(url.searchParams.get('q')||'').toLowerCase()}%`;const users=db.prepare(`SELECT id,username,display_name,avatar,status,created_at,last_login_at FROM platform_users WHERE lower(username) LIKE ? OR lower(display_name) LIKE ? ORDER BY created_at DESC LIMIT 200`).all(q,q).map(row=>({...publicUser(row),roles:rolesFor(row.id)}));return json(res,200,{users});}
     const roleMatch=url.pathname.match(/^\/api\/admin\/users\/([^/]+)\/roles$/);if(method==='PUT'&&roleMatch){const body=await bodyJson(req),id=decodeURIComponent(roleMatch[1]),allowed=new Set(['platform.admin','backgammon.admin','preferans.admin']),roles=Array.isArray(body.roles)?body.roles.filter(x=>allowed.has(String(x))).map(String):[];db.exec('BEGIN IMMEDIATE');try{db.prepare('DELETE FROM platform_roles WHERE user_id=?').run(id);const s=db.prepare('INSERT INTO platform_roles(user_id,role) VALUES (?,?)');for(const role of roles)s.run(id,role);db.exec('COMMIT');}catch(e){db.exec('ROLLBACK');throw e;}return json(res,200,{user:userById(id),roles:rolesFor(id)});}
     const deployMatch=url.pathname.match(/^\/api\/admin\/apps\/(portal|backgammon|preferans)\/deploy$/);if(method==='POST'&&deployMatch){const id=deployMatch[1],body=await bodyJson(req),action=String(body.action||'full');if(!['full','restart'].includes(action))return json(res,400,{error:'Invalid action'});const child=spawn('/usr/bin/sudo',['-n','/usr/local/sbin/games-admin-deploy',id,action],{detached:true,stdio:'ignore'});child.unref();return json(res,202,{ok:true,app:id,action});}
