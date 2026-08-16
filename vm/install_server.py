@@ -15,7 +15,47 @@ def hash_password(password:str)->str:
     salt=secrets.token_bytes(16); digest=hashlib.scrypt(password.encode(),salt=salt,n=2**14,r=8,p=1,dklen=32); return f"scrypt${salt.hex()}${digest.hex()}"
 def ensure_layout(root:Path):
     for name in ('public','admin','server','deploy','data','logs'): (root/name).mkdir(parents=True,exist_ok=True)
+def admin_redirect()->str:
+    return f'''    location = /admin {{ return 301 https://{ADMIN_HOST}/; }}\n    location ^~ /admin/ {{ return 301 https://{ADMIN_HOST}/; }}\n'''
+def admin_proxy()->str:
+    return f'''    root {APP_ROOT/'admin'};\n    index index.html;\n    access_log {APP_ROOT/'logs'/'nginx_admin_access.log'};\n    error_log {APP_ROOT/'logs'/'nginx_admin_error.log'};\n    location /api/ {{\n        proxy_pass http://127.0.0.1:{PORT};\n        proxy_http_version 1.1;\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n        proxy_set_header X-Forwarded-Proto $scheme;\n    }}\n    location / {{ try_files $uri $uri/ /index.html; }}\n'''
 def nginx_config(root:Path)->str:
+    cert_dir=Path('/etc/letsencrypt/live')/PUBLIC_HOST
+    cert=cert_dir/'fullchain.pem'; key=cert_dir/'privkey.pem'
+    redirect=admin_redirect()
+    if cert.exists() and key.exists():
+        ssl_common=f'''    ssl_certificate {cert};\n    ssl_certificate_key {key};\n    include /etc/letsencrypt/options-ssl-nginx.conf;\n    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;\n'''
+        return f'''server {{
+    listen 80;
+    listen [::]:80;
+    server_name {PUBLIC_HOST};
+{redirect}    location / {{ return 301 https://{PUBLIC_HOST}$request_uri; }}
+}}
+
+server {{
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name {PUBLIC_HOST};
+{ssl_common}    root {root/'public'};
+    index index.html;
+    access_log {root/'logs'/'nginx_public_access.log'};
+    error_log {root/'logs'/'nginx_public_error.log'};
+{redirect}    location / {{ try_files $uri $uri/ /index.html; }}
+}}
+
+server {{
+    listen 80;
+    listen [::]:80;
+    server_name {ADMIN_HOST};
+    location / {{ return 301 https://{ADMIN_HOST}$request_uri; }}
+}}
+
+server {{
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name {ADMIN_HOST};
+{ssl_common}{admin_proxy()}}}
+'''
     return f'''server {{
     listen 80;
     listen [::]:80;
@@ -24,27 +64,14 @@ def nginx_config(root:Path)->str:
     index index.html;
     access_log {root/'logs'/'nginx_public_access.log'};
     error_log {root/'logs'/'nginx_public_error.log'};
-    location / {{ try_files $uri $uri/ /index.html; }}
+{redirect}    location / {{ try_files $uri $uri/ /index.html; }}
 }}
 
 server {{
     listen 80;
     listen [::]:80;
     server_name {ADMIN_HOST};
-    root {root/'admin'};
-    index index.html;
-    access_log {root/'logs'/'nginx_admin_access.log'};
-    error_log {root/'logs'/'nginx_admin_error.log'};
-    location /api/ {{
-        proxy_pass http://127.0.0.1:{PORT};
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }}
-    location / {{ try_files $uri $uri/ /index.html; }}
-}}
+{admin_proxy()}}}
 '''
 def configure_nginx(root:Path):
     available=Path('/etc/nginx/sites-available/games-portal'); enabled=Path('/etc/nginx/sites-enabled/games-portal')
@@ -105,6 +132,8 @@ def main():
     elif a.cmd=='ssl':
         configure_nginx(root)
         run(['certbot','--nginx','--expand','--cert-name',PUBLIC_HOST,'-d',PUBLIC_HOST,'-d',ADMIN_HOST,'--non-interactive','--agree-tos','--redirect','--register-unsafely-without-email'])
-        run(['nginx','-t']); run(['systemctl','reload','nginx']); run(['systemctl','enable','--now','certbot.timer'])
+        # Replace Certbot's one-time edits with the portal-owned persistent HTTPS configuration.
+        configure_nginx(root)
+        run(['systemctl','enable','--now','certbot.timer'])
         print(f'https://{PUBLIC_HOST}'); print(f'https://{ADMIN_HOST}')
 if __name__=='__main__': main()
