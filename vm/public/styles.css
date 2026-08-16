@@ -1,1 +1,272 @@
-:root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#f4ead5;background:#181611;font-synthesis:none}*{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(circle at 50% -10%,#403625 0,#211d16 38%,#14130f 78%);color:#f4ead5}.shell{width:min(1120px,calc(100% - 36px));margin:0 auto;padding:76px 0 34px}.hero{text-align:center;margin:0 auto 46px}.eyebrow{font-size:.72rem;letter-spacing:.28em;color:#c89a52;font-weight:700}.hero h1{font-family:Georgia,"Times New Roman",serif;font-weight:500;font-size:clamp(2.5rem,7vw,5.3rem);line-height:.95;letter-spacing:-.045em;margin:14px 0 18px}.hero p{margin:0;color:#bfb5a3;font-size:1.05rem}.games{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px}.game-card{display:grid;grid-template-rows:290px 1fr;min-height:520px;text-decoration:none;color:inherit;border:1px solid rgba(238,217,178,.14);border-radius:24px;overflow:hidden;background:rgba(35,31,24,.84);box-shadow:0 18px 60px rgba(0,0,0,.24);transition:transform .24s ease,border-color .24s ease,box-shadow .24s ease}.game-card:hover{transform:translateY(-5px);border-color:rgba(211,158,78,.52);box-shadow:0 26px 75px rgba(0,0,0,.34)}.art{position:relative;overflow:hidden;border-bottom:1px solid rgba(238,217,178,.12)}.board-art{background:linear-gradient(135deg,#8d5b35,#4a2e20)}.board-art:before,.board-art:after{content:"";position:absolute;inset:18px 50% 18px 18px;background:repeating-linear-gradient(90deg,transparent 0 13%,#d8b278 13% 24%,transparent 24% 37%,#38231b 37% 48%);clip-path:polygon(0 0,100% 50%,0 100%);opacity:.9}.board-art:after{inset:18px 18px 18px 50%;transform:scaleX(-1)}.board-line{position:absolute;z-index:2;left:calc(50% - 10px);top:0;bottom:0;width:20px;background:#302118;box-shadow:inset 0 0 0 1px rgba(255,255,255,.07)}.checker{position:absolute;z-index:3;width:52px;height:52px;border-radius:50%;box-shadow:0 8px 15px rgba(0,0,0,.35),inset 0 0 0 3px rgba(255,255,255,.14)}.c1{left:14%;bottom:22px;background:#eadcc0}.c2{left:25%;bottom:22px;background:#2b221c}.c3{right:14%;top:22px;background:#eadcc0}.c4{right:25%;top:22px;background:#2b221c}.cards-art{display:grid;place-items:center;background:radial-gradient(circle at 50% 70%,#5b3f2a 0,#30271d 42%,#1c1914 100%)}.playing-card{position:absolute;width:128px;height:184px;border-radius:13px;background:#eee5d3;color:#1e1a15;padding:15px;font:700 1.35rem Georgia,serif;box-shadow:0 20px 35px rgba(0,0,0,.35);border:1px solid #fff8e7}.playing-card span{display:block;font-size:2.1rem;margin-top:4px}.card-a{transform:translateX(-68px) rotate(-13deg)}.card-k{z-index:2;transform:translateY(-10px)}.card-k span{color:#8f372d}.card-q{transform:translateX(68px) rotate(13deg)}.card-body{display:flex;flex-direction:column;justify-content:space-between;padding:27px 28px 28px}.kind{text-transform:uppercase;font-size:.68rem;letter-spacing:.18em;color:#c89a52;font-weight:750}.card-body h2{font-family:Georgia,"Times New Roman",serif;font-size:2rem;font-weight:500;margin:8px 0 9px}.card-body p{color:#b9af9f;line-height:1.55;margin:0;max-width:40ch}.play{margin-top:28px;font-weight:700;color:#f0d39e}.play span{display:inline-block;margin-left:5px;transition:transform .2s ease}.game-card:hover .play span{transform:translateX(4px)}footer{text-align:center;color:#756e62;font-size:.78rem;margin-top:30px}@media(max-width:760px){.shell{padding-top:50px}.hero{margin-bottom:32px}.games{grid-template-columns:1fr}.game-card{grid-template-rows:230px 1fr;min-height:445px}.card-body{padding:23px}.playing-card{width:105px;height:154px}.checker{width:44px;height:44px}}
+:root{
+  font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  color:#f4ead5;
+  background:#12110e;
+  font-synthesis:none;
+}
+
+*{box-sizing:border-box}
+
+body{
+  margin:0;
+  min-height:100vh;
+  background:
+    radial-gradient(circle at 50% -12%,rgba(137,94,47,.22),transparent 34%),
+    radial-gradient(circle at 15% 32%,rgba(92,64,34,.11),transparent 28%),
+    linear-gradient(180deg,#1a1813 0%,#12110e 58%,#0f0f0c 100%);
+  color:#f4ead5;
+}
+
+body:before{
+  content:"";
+  position:fixed;
+  inset:0;
+  pointer-events:none;
+  opacity:.22;
+  background-image:linear-gradient(rgba(255,255,255,.012) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.01) 1px,transparent 1px);
+  background-size:34px 34px;
+  mask-image:linear-gradient(to bottom,black,transparent 75%);
+}
+
+.shell{
+  width:min(1180px,calc(100% - 44px));
+  margin:0 auto;
+  padding:58px 0 56px;
+}
+
+.hero{
+  text-align:center;
+  max-width:760px;
+  margin:0 auto 38px;
+}
+
+.eyebrow{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:12px;
+  font-size:.69rem;
+  letter-spacing:.28em;
+  color:#c99349;
+  font-weight:800;
+}
+
+.eyebrow span{
+  width:28px;
+  height:1px;
+  background:linear-gradient(90deg,transparent,#9b6b31);
+}
+
+.eyebrow span:last-child{transform:scaleX(-1)}
+
+.hero h1{
+  font-family:Georgia,"Times New Roman",serif;
+  font-weight:500;
+  font-size:clamp(2.75rem,5.3vw,4.45rem);
+  line-height:1;
+  letter-spacing:-.045em;
+  margin:13px 0 14px;
+}
+
+.hero p{
+  margin:0;
+  color:#aaa08f;
+  font-size:1rem;
+  line-height:1.6;
+}
+
+.games{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:22px;
+}
+
+.game-card{
+  display:grid;
+  grid-template-rows:306px 1fr;
+  min-height:492px;
+  position:relative;
+  overflow:hidden;
+  text-decoration:none;
+  color:inherit;
+  border:1px solid rgba(238,217,178,.14);
+  border-radius:22px;
+  background:linear-gradient(180deg,rgba(36,32,25,.96),rgba(28,26,21,.98));
+  box-shadow:0 22px 65px rgba(0,0,0,.25);
+  transition:transform .24s ease,border-color .24s ease,box-shadow .24s ease;
+}
+
+.game-card:after{
+  content:"";
+  position:absolute;
+  inset:0;
+  border-radius:inherit;
+  pointer-events:none;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.025);
+}
+
+.game-card:hover{
+  transform:translateY(-5px);
+  border-color:rgba(211,158,78,.48);
+  box-shadow:0 30px 80px rgba(0,0,0,.36),0 0 0 1px rgba(201,147,73,.05);
+}
+
+.game-card:focus-visible{
+  outline:2px solid #d39a4a;
+  outline-offset:4px;
+}
+
+.art{
+  position:relative;
+  overflow:hidden;
+  border-bottom:1px solid rgba(238,217,178,.1);
+}
+
+.board-art{
+  display:grid;
+  place-items:center;
+  padding:13px 18px 11px;
+  background:
+    radial-gradient(circle at 50% 18%,rgba(255,211,143,.1),transparent 36%),
+    linear-gradient(180deg,#2b2118,#181510);
+}
+
+.board-art:before{
+  content:"";
+  position:absolute;
+  width:72%;
+  height:32px;
+  left:14%;
+  bottom:16px;
+  border-radius:50%;
+  background:#000;
+  filter:blur(20px);
+  opacity:.34;
+}
+
+.board{
+  position:relative;
+  z-index:1;
+  width:100%;
+  height:100%;
+  filter:drop-shadow(0 14px 18px rgba(0,0,0,.28));
+}
+
+.cards-art{
+  background:#17150f;
+}
+
+.cards{
+  display:block;
+  width:100%;
+  height:100%;
+}
+
+.card-rank,
+.card-suit,
+.card-center,
+.pip,
+.king-mark{
+  font-family:Georgia,"Times New Roman",serif;
+  fill:#171717;
+}
+
+.card-rank{font-size:27px;font-weight:700}
+.card-suit{font-size:25px}
+.card-center{font-size:66px}
+.card-center.small{font-size:36px}
+.pip{font-size:24px}
+.king-mark{font-size:54px;font-weight:700;fill:#6e4c2f}
+.red{fill:#9a352d}
+.black{fill:#171717}
+.card-rotate{transform-box:fill-box;transform-origin:center;transform:rotate(180deg)}
+
+.card-body{
+  display:flex;
+  align-items:flex-end;
+  justify-content:space-between;
+  gap:28px;
+  padding:25px 28px 27px;
+}
+
+.card-copy{min-width:0}
+
+.kind{
+  text-transform:uppercase;
+  font-size:.66rem;
+  letter-spacing:.19em;
+  color:#c99349;
+  font-weight:800;
+}
+
+.card-body h2{
+  font-family:Georgia,"Times New Roman",serif;
+  font-size:2.05rem;
+  line-height:1.05;
+  font-weight:500;
+  letter-spacing:-.02em;
+  margin:7px 0 8px;
+}
+
+.card-body p{
+  color:#aaa190;
+  line-height:1.52;
+  margin:0;
+  max-width:37ch;
+  font-size:.95rem;
+}
+
+.play{
+  flex:none;
+  display:inline-flex;
+  align-items:center;
+  gap:9px;
+  margin-bottom:3px;
+  color:#efd49d;
+  font-size:.88rem;
+  font-weight:750;
+  white-space:nowrap;
+}
+
+.arrow{
+  display:grid;
+  place-items:center;
+  width:29px;
+  height:29px;
+  border-radius:50%;
+  border:1px solid rgba(226,184,112,.27);
+  background:rgba(183,123,50,.07);
+  transition:transform .2s ease,background .2s ease,border-color .2s ease;
+}
+
+.game-card:hover .arrow{
+  transform:translateX(3px);
+  background:rgba(183,123,50,.16);
+  border-color:rgba(226,184,112,.48);
+}
+
+@media(max-width:900px){
+  .shell{width:min(760px,calc(100% - 34px));padding-top:45px}
+  .hero{margin-bottom:31px}
+  .games{grid-template-columns:1fr}
+  .game-card{grid-template-rows:290px 1fr;min-height:470px}
+}
+
+@media(max-width:560px){
+  .shell{width:calc(100% - 24px);padding:34px 0 30px}
+  .hero{margin-bottom:26px}
+  .hero h1{font-size:clamp(2.35rem,12vw,3.3rem);margin-top:11px}
+  .hero p{font-size:.92rem;padding:0 12px}
+  .eyebrow{font-size:.62rem;gap:8px}
+  .eyebrow span{width:20px}
+  .game-card{grid-template-rows:228px 1fr;min-height:414px;border-radius:18px}
+  .board-art{padding:8px 7px 5px}
+  .card-body{align-items:flex-start;flex-direction:column;gap:20px;padding:22px}
+  .card-body h2{font-size:1.85rem}
+  .play{margin-bottom:0}
+}
+
+@media(prefers-reduced-motion:reduce){
+  .game-card,.arrow{transition:none}
+  .game-card:hover{transform:none}
+}
