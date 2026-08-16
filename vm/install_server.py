@@ -50,7 +50,6 @@ def configure_nginx(root:Path):
     available=Path('/etc/nginx/sites-available/games-portal'); enabled=Path('/etc/nginx/sites-enabled/games-portal')
     available.write_text(nginx_config(root))
     if not enabled.exists(): enabled.symlink_to(available)
-    # Remove a default root-host site only if it is the stock nginx default. Existing game sites stay untouched.
     default=Path('/etc/nginx/sites-enabled/default')
     if default.is_symlink():
         try:
@@ -105,7 +104,7 @@ def main():
     elif a.cmd=='deploy': deploy(root,user)
     elif a.cmd=='ssl':
         configure_nginx(root)
-        run(['certbot','--nginx','-d',PUBLIC_HOST,'-d',ADMIN_HOST,'--non-interactive','--agree-tos','--redirect','--register-unsafely-without-email'])
+        run(['certbot','--nginx','--expand','--cert-name',PUBLIC_HOST,'-d',PUBLIC_HOST,'-d',ADMIN_HOST,'--non-interactive','--agree-tos','--redirect','--register-unsafely-without-email'])
         run(['nginx','-t']); run(['systemctl','reload','nginx']); run(['systemctl','enable','--now','certbot.timer'])
         print(f'https://{PUBLIC_HOST}'); print(f'https://{ADMIN_HOST}')
 if __name__=='__main__': main()
