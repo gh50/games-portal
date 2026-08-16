@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Games Server Admin</title>
+  <link rel="stylesheet" href="/admin.css">
+</head>
+<body>
+  <main class="wrap">
+    <header><div><span class="eyebrow">SERVER ADMIN</span><h1>Games platform</h1><p>Deploy and inspect applications on this VM.</p></div><button id="logout" class="ghost hidden">Sign out</button></header>
+
+    <section id="loginPanel" class="login panel">
+      <h2>Administrator sign in</h2>
+      <form id="loginForm"><label>Username<input id="username" autocomplete="username" required></label><label>Password<input id="password" type="password" autocomplete="current-password" required></label><button type="submit">Sign in</button><p id="loginError" class="error"></p></form>
+    </section>
+
+    <section id="dashboard" class="hidden">
+      <div class="toolbar"><span id="updated">Loading…</span><button id="refresh" class="ghost">Refresh</button></div>
+      <div id="apps" class="apps"></div>
+    </section>
+  </main>
+
+  <template id="appTemplate"><article class="panel app"><div class="app-head"><div><div class="status-row"><span class="dot"></span><span class="state">Unknown</span></div><h2 class="name"></h2><a class="url" target="_blank" rel="noreferrer"></a></div><div class="actions"><button class="deploy">Deploy latest</button><button class="restart ghost">Restart</button></div></div><div class="meta"><div><span>Current commit</span><strong class="commit">—</strong></div><div><span>Last deployed</span><strong class="deployedAt">—</strong></div></div><details><summary>Deployment log</summary><pre class="log">Open to load log.</pre></details></article></template>
+  <script src="/admin.js"></script>
+</body>
+</html>
