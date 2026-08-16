@@ -29,7 +29,9 @@ function parseCookies(req){const out={};for(const part of String(req.headers.coo
 function normalizeUsername(value){return String(value||'').trim().toLowerCase();}
 function validUsername(value){return /^[a-z0-9][a-z0-9_.-]{2,23}$/.test(value);}
 function cleanDisplayName(value){const name=String(value||'').trim().replace(/\s+/g,' ');if(name.length<1||name.length>32)throw new Error('Display name must be 1-32 characters.');return name;}
-function validPassword(value){return typeof value==='string'&&value.length>=10&&value.length<=200;}
+// Eight characters is the platform compatibility floor because existing Preferans
+// accounts may have been created under the previous 8-character minimum.
+function validPassword(value){return typeof value==='string'&&value.length>=8&&value.length<=200;}
 function hashPassword(password){const salt=crypto.randomBytes(16);const digest=crypto.scryptSync(password,salt,32,{N:2**14,r:8,p:1});return `scrypt$${salt.toString('hex')}$${digest.toString('hex')}`;}
 function verifyPassword(password,stored){try{const parts=String(stored||'').split('$');if(parts.length===3&&parts[0]==='scrypt'){const actual=crypto.scryptSync(password,Buffer.from(parts[1],'hex'),32,{N:2**14,r:8,p:1});return crypto.timingSafeEqual(actual,Buffer.from(parts[2],'hex'));}if(parts.length===6&&parts[0]==='scrypt'){const actual=crypto.scryptSync(password,parts[4],parts[5].length/2,{N:Number(parts[1]),r:Number(parts[2]),p:Number(parts[3]),maxmem:64*1024*1024});return crypto.timingSafeEqual(actual,Buffer.from(parts[5],'hex'));}if(parts.length===7&&parts[0]==='scrypt'&&parts[1]==='v=1'){const n=Number(parts[2].slice(2)),r=Number(parts[3].slice(2)),p=Number(parts[4].slice(2));const actual=crypto.scryptSync(password,parts[5],32,{N:n,r,p,maxmem:64*1024*1024});return crypto.timingSafeEqual(actual,Buffer.from(parts[6],'hex'));}return false;}catch{return false;}}
 function tokenHash(token){return crypto.createHash('sha256').update(token).digest('hex');}
@@ -47,7 +49,7 @@ function findUser(username){return db.prepare('SELECT * FROM platform_users WHER
 function rolesFor(id){return db.prepare('SELECT role FROM platform_roles WHERE user_id=? ORDER BY role').all(id).map(x=>String(x.role));}
 function grantAdminRoles(id){const s=db.prepare('INSERT OR IGNORE INTO platform_roles(user_id,role) VALUES (?,?)');for(const role of ['platform.admin','backgammon.admin','preferans.admin'])s.run(id,role);}
 function createUser(usernameValue,displayName,password,avatar='cards-1'){
-  const username=normalizeUsername(usernameValue);if(!validUsername(username))throw new Error('Username must be 3-24 lowercase letters, numbers, dot, dash or underscore.');if(!validPassword(password))throw new Error('Password must be 10-200 characters.');const name=cleanDisplayName(displayName||username);const now=new Date().toISOString(),id=crypto.randomUUID();
+  const username=normalizeUsername(usernameValue);if(!validUsername(username))throw new Error('Username must be 3-24 lowercase letters, numbers, dot, dash or underscore.');if(!validPassword(password))throw new Error('Password must be 8-200 characters.');const name=cleanDisplayName(displayName||username);const now=new Date().toISOString(),id=crypto.randomUUID();
   try{db.prepare('INSERT INTO platform_users(id,username,display_name,password_hash,avatar,created_at,updated_at) VALUES (?,?,?,?,?,?,?)').run(id,username,name,hashPassword(password),String(avatar||'cards-1').slice(0,64),now,now);}catch(e){if(String(e).includes('UNIQUE'))throw new Error('Username is already registered.');throw e;}return userById(id);
 }
 function loginUser(username,password){const row=findUser(username);if(!row||String(row.status)!=='active'||!verifyPassword(password,String(row.password_hash)))return null;const now=new Date().toISOString();db.prepare('UPDATE platform_users SET last_login_at=?,updated_at=? WHERE id=?').run(now,now,row.id);return userById(row.id);}
@@ -67,7 +69,15 @@ async function bodyJson(req){return new Promise((resolve,reject)=>{let data='';r
 function unauthorized(res){json(res,401,{error:'Unauthorized'});}
 function clientIp(req){return String(req.headers['x-real-ip']||req.socket.remoteAddress||'unknown');}
 function rateLimited(key,limit=10){const now=Date.now(),a=attempts.get(key);if(!a||a.until<=now){attempts.set(key,{count:1,until:now+10*60_000});return false;}a.count+=1;return a.count>limit;}
-function ensureLegacyAdminPlatformAccount(username,password){let row=findUser(username);if(!row){const user=createUser(username,username,password,'cards-1');grantAdminRoles(user.id);return;}if(verifyPassword(password,String(row.password_hash)))grantAdminRoles(row.id);}
+function ensureLegacyAdminPlatformAccount(username,password){
+  let row=findUser(username);
+  if(!row){const user=createUser(username,username,password,'cards-1');grantAdminRoles(user.id);return;}
+  // The configured infrastructure admin is authoritative for the bootstrap name.
+  // If a platform account with that name already exists, align its credential before
+  // granting the administrative roles instead of allowing a name collision to block migration.
+  if(!verifyPassword(password,String(row.password_hash))){db.prepare('UPDATE platform_users SET password_hash=?,status=?,updated_at=? WHERE id=?').run(hashPassword(password),'active',new Date().toISOString(),row.id);}
+  grantAdminRoles(row.id);
+}
 
 const server=http.createServer(async(req,res)=>{
   try{
@@ -83,7 +93,7 @@ const server=http.createServer(async(req,res)=>{
       if(method==='POST'&&url.pathname==='/api/account/logout'){const token=requestToken(req);revokeSession(token);return json(res,200,{ok:true},{'Set-Cookie':clearPlayerCookie()});}
       if(method==='GET'&&(url.pathname==='/api/account/session'||url.pathname==='/api/account/verify')){const session=resolveSession(requestToken(req));return session?json(res,200,{authenticated:true,...session}):json(res,url.pathname.endsWith('/verify')?401:200,{authenticated:false,user:null,roles:[]});}
       if(method==='PATCH'&&url.pathname==='/api/account/profile'){const token=requestToken(req),session=resolveSession(token);if(!session)return unauthorized(res);const body=await bodyJson(req);const name=body.displayName===undefined?session.user.displayName:cleanDisplayName(body.displayName),avatar=body.avatar===undefined?session.user.avatar:String(body.avatar).slice(0,64);db.prepare('UPDATE platform_users SET display_name=?,avatar=?,updated_at=? WHERE id=?').run(name,avatar,new Date().toISOString(),session.user.id);return json(res,200,{user:userById(session.user.id)});}
-      if(method==='POST'&&url.pathname==='/api/account/password'){const token=requestToken(req),session=resolveSession(token);if(!session)return unauthorized(res);const body=await bodyJson(req),row=findUser(session.user.username);if(!row||!verifyPassword(String(body.currentPassword||''),String(row.password_hash)))return json(res,400,{error:'Current password is incorrect.'});if(!validPassword(String(body.newPassword||'')))return json(res,400,{error:'Password must be 10-200 characters.'});db.prepare('UPDATE platform_users SET password_hash=?,updated_at=? WHERE id=?').run(hashPassword(String(body.newPassword)),new Date().toISOString(),session.user.id);db.prepare('DELETE FROM platform_sessions WHERE user_id=?').run(session.user.id);return json(res,200,{ok:true},{'Set-Cookie':clearPlayerCookie()});}
+      if(method==='POST'&&url.pathname==='/api/account/password'){const token=requestToken(req),session=resolveSession(token);if(!session)return unauthorized(res);const body=await bodyJson(req),row=findUser(session.user.username);if(!row||!verifyPassword(String(body.currentPassword||''),String(row.password_hash)))return json(res,400,{error:'Current password is incorrect.'});if(!validPassword(String(body.newPassword||'')))return json(res,400,{error:'Password must be 8-200 characters.'});db.prepare('UPDATE platform_users SET password_hash=?,updated_at=? WHERE id=?').run(hashPassword(String(body.newPassword)),new Date().toISOString(),session.user.id);db.prepare('DELETE FROM platform_sessions WHERE user_id=?').run(session.user.id);return json(res,200,{ok:true},{'Set-Cookie':clearPlayerCookie()});}
       return json(res,404,{error:'Not found'});
     }
     if(method==='POST'&&url.pathname==='/api/admin/login'){
