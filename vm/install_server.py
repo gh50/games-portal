@@ -18,7 +18,7 @@ def ensure_layout(root:Path):
 def public_routes()->str:
     return '''    location = /admin { return 404; }\n    location ^~ /admin/ { return 404; }\n'''
 def admin_proxy()->str:
-    return f'''    root {APP_ROOT/'admin'};\n    index index.html;\n    access_log {APP_ROOT/'logs'/'nginx_admin_access.log'};\n    error_log {APP_ROOT/'logs'/'nginx_admin_error.log'};\n    location /api/ {{\n        proxy_pass http://127.0.0.1:{PORT};\n        proxy_http_version 1.1;\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n        proxy_set_header X-Forwarded-Proto $scheme;\n    }}\n    location / {{ try_files $uri $uri/ /index.html; }}\n'''
+    return f'''    root {APP_ROOT/'admin'};\n    index index.html;\n    access_log {APP_ROOT/'logs'/'nginx_admin_access.log'};\n    error_log {APP_ROOT/'logs'/'nginx_admin_error.log'};\n    location /api/ {{\n        proxy_pass http://127.0.0.1:{PORT};\n        proxy_http_version 1.1;\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n        proxy_set_header X-Forwarded-Proto $scheme;\n    }}\n    location / {{\n        add_header Cache-Control "no-store, no-cache, must-revalidate, max-age=0" always;\n        add_header Pragma "no-cache" always;\n        add_header Expires "0" always;\n        try_files $uri $uri/ /index.html;\n    }}\n'''
 def nginx_config(root:Path)->str:
     cert_dir=Path('/etc/letsencrypt/live')/PUBLIC_HOST
     cert=cert_dir/'fullchain.pem'; key=cert_dir/'privkey.pem'
