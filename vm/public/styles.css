@@ -19,13 +19,13 @@ body{
 .shell{
   width:min(1180px,calc(100% - 44px));
   margin:0 auto;
-  padding:48px 0 54px;
+  padding:42px 0 30px;
 }
 
 .hero{
   text-align:center;
   max-width:720px;
-  margin:0 auto 34px;
+  margin:0 auto 28px;
 }
 
 .eyebrow{
@@ -47,17 +47,8 @@ body{
 
 .eyebrow span:last-child{transform:scaleX(-1)}
 
-.hero h1{
-  font-family:Georgia,"Times New Roman",serif;
-  font-weight:500;
-  font-size:clamp(2.7rem,4.7vw,4rem);
-  line-height:1;
-  letter-spacing:-.04em;
-  margin:13px 0 12px;
-}
-
 .hero p{
-  margin:0;
+  margin:10px 0 0;
   color:#aaa08f;
   font-size:.98rem;
   line-height:1.55;
@@ -203,17 +194,35 @@ body{
   border-color:rgba(226,184,112,.48);
 }
 
+.site-footer{
+  text-align:center;
+  margin-top:22px;
+  min-height:18px;
+}
+
+.site-footer a{
+  color:#6f685c;
+  text-decoration:none;
+  font-size:.75rem;
+  letter-spacing:.03em;
+  transition:color .18s ease;
+}
+
+.site-footer a:hover,
+.site-footer a:focus-visible{
+  color:#aa9c84;
+}
+
 @media(max-width:900px){
-  .shell{width:min(760px,calc(100% - 34px));padding-top:42px}
-  .hero{margin-bottom:30px}
+  .shell{width:min(760px,calc(100% - 34px));padding-top:36px}
+  .hero{margin-bottom:25px}
   .games{grid-template-columns:1fr}
   .game-card{grid-template-rows:290px 1fr;min-height:470px}
 }
 
 @media(max-width:560px){
-  .shell{width:calc(100% - 24px);padding:32px 0 28px}
-  .hero{margin-bottom:25px}
-  .hero h1{font-size:clamp(2.3rem,11vw,3.1rem);margin-top:11px}
+  .shell{width:calc(100% - 24px);padding:28px 0 24px}
+  .hero{margin-bottom:22px}
   .hero p{font-size:.91rem;padding:0 12px}
   .eyebrow{font-size:.61rem;gap:8px}
   .eyebrow span{width:19px}
@@ -222,9 +231,10 @@ body{
   .card-body{align-items:flex-start;flex-direction:column;gap:20px;padding:22px}
   .card-body h2{font-size:1.82rem}
   .play{margin-bottom:0}
+  .site-footer{margin-top:18px}
 }
 
 @media(prefers-reduced-motion:reduce){
-  .game-card,.arrow{transition:none}
+  .game-card,.arrow,.site-footer a{transition:none}
   .game-card:hover{transform:none}
 }
