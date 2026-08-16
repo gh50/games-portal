@@ -73,10 +73,24 @@ server {{
     server_name {ADMIN_HOST};
 {admin_proxy()}}}
 '''
+def disable_legacy_backgammon_root_site():
+    legacy=Path('/etc/nginx/sites-enabled/backgammon')
+    subdomain=Path('/etc/nginx/sites-enabled/backgammon-subdomain')
+    if not legacy.is_symlink() or not subdomain.exists(): return
+    try:
+        text=legacy.resolve().read_text()
+    except OSError:
+        return
+    if f'server_name {PUBLIC_HOST}' in text and '/home/ubuntu/backgammon/client/dist' in text:
+        print(f'+ unlink {legacy} (legacy bare-host Backgammon site)',flush=True)
+        legacy.unlink()
 def configure_nginx(root:Path):
     available=Path('/etc/nginx/sites-available/games-portal'); enabled=Path('/etc/nginx/sites-enabled/games-portal')
     available.write_text(nginx_config(root))
     if not enabled.exists(): enabled.symlink_to(available)
+    # The dedicated backgammon-subdomain site supersedes the old bare-host Backgammon site.
+    # Disable only that known legacy symlink so the portal owns PUBLIC_HOST exclusively.
+    disable_legacy_backgammon_root_site()
     default=Path('/etc/nginx/sites-enabled/default')
     if default.is_symlink():
         try:
