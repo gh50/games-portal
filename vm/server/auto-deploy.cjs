@@ -64,9 +64,9 @@ function createAutoDeploy(options){
   }
   async function api(apiPath,init={},env=readEnv(),permissionHint='Token needs repository Webhooks: write permission.'){
     const token=String(env.DEPLOY_GITHUB_TOKEN??'').trim();
-    if(!token)throw new Error('DEPLOY_GITHUB_TOKEN is required to register the auto-deploy webhook.');
+    if(!token)throw new Error('DEPLOY_GITHUB_TOKEN is required for GitHub deployment checks.');
     const response=await fetch(`https://api.github.com${apiPath}`,{...init,headers:{Accept:'application/vnd.github+json',Authorization:`Bearer ${token}`,'Content-Type':'application/json','User-Agent':'games-portal-auto-deploy','X-GitHub-Api-Version':'2022-11-28',...(init.headers||{})}});
-    if(!response.ok){const text=await response.text();const hint=response.status===403?` ${permissionHint}`:'';throw new Error(`GitHub webhook API returned HTTP ${response.status}: ${text.slice(0,300)}.${hint}`);}
+    if(!response.ok){const text=await response.text();const hint=response.status===403?` ${permissionHint}`:'';throw new Error(`GitHub API returned HTTP ${response.status}: ${text.slice(0,300)}.${hint}`);}
     if(response.status===204)return null;return response.json();
   }
   function readJsonObject(file){
