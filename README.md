@@ -27,7 +27,7 @@ The first installation has to bootstrap the files and privileged wrappers once. 
    `sudo python3 /home/ubuntu/games-portal/install_server.py hash-password`
 
    Put the output in `ADMIN_PASSWORD_HASH` in `.env`. Set `ADMIN_USERNAME` as desired.
-5. For the private repo, set `DEPLOY_GITHUB_TOKEN` to a fine-grained GitHub token with read-only Contents access to `gh50/games-portal`.
+5. Set `DEPLOY_GITHUB_TOKEN` to a fine-grained token limited to `gh50/games-portal` with **Contents: read** and **Webhooks: write** permissions. The token is also needed for webhook registration even when repository contents are public.
 6. Run:
 
    `cd /home/ubuntu/games-portal && sudo python3 install_server.py install`
@@ -40,13 +40,22 @@ The first installation has to bootstrap the files and privileged wrappers once. 
 
 ## Normal workflow after bootstrap
 
-1. Commit/push a change to `games-portal`, `backgammon`, or `preferans`.
-2. Open `https://admin.129.146.112.160.sslip.io`.
-3. Sign in.
-4. Click **Deploy latest** on the application you changed.
-5. The deploy runs detached through `systemd-run`; refresh/status polling shows progress and the deployment log is available on the same card.
+Automatic deployment is enabled by default for Games Portal, Backgammon, and Preferans. Each app
+owns its own signed GitHub webhook, so one broken app does not depend on another app's webhook to
+receive a fixing push.
 
-No SSH is required for routine deployments.
+1. Commit/push a change to `games-portal`, `backgammon`, or `preferans`.
+2. GitHub sends a signed push event directly to that application's webhook.
+3. The candidate is downloaded and validated/built in staging before live files are changed.
+4. The prepared release is switched in, PM2 is restarted, and stable health checks must pass.
+5. If activation fails, the previous release is restored automatically.
+
+The admin page at `https://admin.129.146.112.160.sslip.io` shows deployment state and
+**Auto deploy: Active / Disabled / Error** for each application. **Deploy latest** remains available
+as a manual recovery/redeploy action. Pushes received during a deployment are coalesced to the
+newest commit, while a failed candidate is not retried repeatedly.
+
+No SSH is required for routine deployments after bootstrap.
 
 ## Security notes
 
