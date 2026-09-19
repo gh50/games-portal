@@ -20,6 +20,7 @@ MANAGED = ("public", "admin", "server", "deploy", "install_server.py", ".env.exa
 PM2_NAME = "games-portal-admin"
 DATABASE_FILE = "platform.sqlite"
 HEALTH_URL = "http://127.0.0.1:3010/api/health"
+HEALTH_PATHS = ("/api/health", "/api/account/session")
 FOLLOW_UP_COMMAND = "/usr/local/sbin/games-portal-web-deploy"
 INSTALLED_HELPER = Path("/usr/local/lib/games-portal/deploy_from_github.py")
 
@@ -127,6 +128,14 @@ def _json_response(url: str, timeout: float = 2.0) -> dict[str, object] | None:
         return None
 
 
+def log_probe_diagnostics(base_url: str, log, label: str) -> None:
+    log.write(f"{label} diagnostics:\n")
+    for path in HEALTH_PATHS:
+        payload = _json_response(base_url + path)
+        log.write(f" - {path}: {'ok' if payload is not None else 'failed'}\n")
+    log.flush()
+
+
 def _runtime_probes_ok(base_url: str) -> bool:
     health = _json_response(base_url + "/api/health")
     session = _json_response(base_url + "/api/account/session")
@@ -170,6 +179,7 @@ def smoke_candidate(candidate: Path, env: dict[str, str], log, username: str) ->
                 log.flush()
                 return
             time.sleep(0.5)
+        log_probe_diagnostics(base_url, log, "Candidate runtime smoke")
         raise RuntimeError("Candidate server did not pass runtime smoke probes.")
     finally:
         if process.poll() is None:
@@ -321,7 +331,8 @@ def restart_pm2(root: Path, username: str, env: dict[str, str], log) -> None:
     run(["sudo", "-u", username, "pm2", "save"], root, env, log)
 
 
-def health_ok(root: Path) -> bool:
+def health_ok(root: Path, log=None) -> bool:
+    base_url = "http://127.0.0.1:3010"
     stable = 0
     for _ in range(60):
         public_index = root / "public" / "index.html"
@@ -332,11 +343,18 @@ def health_ok(root: Path) -> bool:
             and admin_index.exists()
             and admin_index.stat().st_size >= 256
         )
-        good = static_ok and _runtime_probes_ok("http://127.0.0.1:3010")
+        good = static_ok and _runtime_probes_ok(base_url)
         stable = stable + 1 if good else 0
         if stable >= 3:
             return True
         time.sleep(1)
+    if log is not None:
+        log.write(
+            "Static deployment health: "
+            f"public={'ok' if (root / 'public' / 'index.html').exists() else 'failed'}, "
+            f"admin={'ok' if (root / 'admin' / 'index.html').exists() else 'failed'}\n"
+        )
+        log_probe_diagnostics(base_url, log, "Post-restart health")
     return False
 
 
@@ -447,14 +465,14 @@ def main() -> int:
 
             stage("activate", "Restarting Games Portal administration service and requiring stable health.")
             restart_pm2(root, args.run_as, process_env, log)
-            if not health_ok(root):
+            if not health_ok(root, log):
                 if switched:
                     stage("rollback", "Candidate failed health checks; restoring previous release and runtime data.")
                     stop_pm2(root, args.run_as, process_env, log)
                     restore_previous(root, uid, gid)
                     restore_runtime_data(root, uid, gid)
                     restart_pm2(root, args.run_as, process_env, log)
-                    if health_ok(root):
+                    if health_ok(root, log):
                         raise RuntimeError("Candidate failed health checks and was rolled back; previous release is healthy.")
                     raise RuntimeError("Candidate failed health checks and rollback did not restore a healthy server.")
                 raise RuntimeError("Restarted portal did not pass health checks.")
