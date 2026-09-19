@@ -241,6 +241,9 @@ def main() -> int:
     requested_path = root / "data" / "deploy-requested-sha"
     started = now()
     revision: str | None = None
+    trigger_revision = os.environ.get("DEPLOY_REQUESTED_SHA", "").strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{40}", trigger_revision):
+        trigger_revision = ""
     staging: Path | None = None
     switched = False
     status: dict[str, object] = {
@@ -335,7 +338,7 @@ def main() -> int:
             pass
         try:
             with log_path.open("a", encoding="utf-8") as log:
-                schedule_follow_up(requested_path, revision, status.get("state") == "succeeded", log)
+                schedule_follow_up(requested_path, revision or trigger_revision or None, status.get("state") == "succeeded", log)
         except Exception:
             pass
 
