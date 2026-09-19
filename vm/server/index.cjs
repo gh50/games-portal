@@ -6,6 +6,7 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { DatabaseSync } = require('node:sqlite');
 const { getVmSnapshot } = require('./telemetry.cjs');
+const { createAutoDeploy } = require('./auto-deploy.cjs');
 
 const root = process.env.GAMES_PORTAL_ROOT || '/home/ubuntu/games-portal';
 const host = process.env.HOST || '127.0.0.1';
@@ -21,6 +22,12 @@ const targets = {
   preferans: { name:'Preferans', url:'https://preferans.129.146.112.160.sslip.io', root:'/home/ubuntu/preferans', process:'preferans-server' }
 };
 const attempts = new Map();
+const autoDeploy = createAutoDeploy({
+  root,
+  webhookUrl:'https://admin.129.146.112.160.sslip.io/api/github/webhook',
+  deployCommand:['/usr/bin/sudo','-n','/usr/local/sbin/games-portal-web-deploy','full'],
+  defaultBranch:'main'
+});
 
 function loadEnv(){
   const out={}; const file=path.join(root,'.env'); if(!fs.existsSync(file)) return out;
@@ -83,6 +90,7 @@ function ensureLegacyAdminPlatformAccount(username,password){
 const server=http.createServer(async(req,res)=>{
   try{
     const url=new URL(req.url||'/',`http://${req.headers.host||'localhost'}`),method=req.method||'GET';
+    if(await autoDeploy.handle(req,res,url))return;
     if(method==='GET'&&url.pathname==='/api/health')return json(res,200,{ok:true,service:'games-portal'});
     if(url.pathname.startsWith('/api/account/')){
       if(method==='POST'&&url.pathname==='/api/account/register'){
@@ -114,4 +122,4 @@ const server=http.createServer(async(req,res)=>{
     return json(res,404,{error:'Not found'});
   }catch(e){console.error(e);return json(res,500,{error:'Internal server error'});}
 });
-server.listen(port,host,()=>console.log(JSON.stringify({level:'info',message:'Games portal started',host,port,identityDatabase:dbPath})));
+server.listen(port,host,()=>{console.log(JSON.stringify({level:'info',message:'Games portal started',host,port,identityDatabase:dbPath}));void autoDeploy.register();});
