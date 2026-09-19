@@ -209,12 +209,13 @@ def requested_sha(path: Path) -> str:
         return ""
 
 
-def schedule_follow_up(path: Path, deployed: str | None, log) -> None:
+def schedule_follow_up(path: Path, attempted: str | None, succeeded: bool, log) -> None:
     requested = requested_sha(path)
     if not requested:
         return
-    if deployed and requested == deployed:
-        path.unlink(missing_ok=True)
+    if attempted and requested == attempted:
+        if succeeded:
+            path.unlink(missing_ok=True)
         return
     log.write(f"Newer requested commit {requested[:12]} remains queued; scheduling follow-up deployment.\n")
     log.flush()
@@ -334,7 +335,7 @@ def main() -> int:
             pass
         try:
             with log_path.open("a", encoding="utf-8") as log:
-                schedule_follow_up(requested_path, revision if status.get("state") == "succeeded" else None, log)
+                schedule_follow_up(requested_path, revision, status.get("state") == "succeeded", log)
         except Exception:
             pass
 
