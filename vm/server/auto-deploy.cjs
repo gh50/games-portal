@@ -21,7 +21,10 @@ function createAutoDeploy(options){
     }
     return out;
   }
-  function enabled(env=readEnv()){return !FALSE_VALUES.has(String(env.AUTO_DEPLOY_ENABLED??'true').trim().toLowerCase());}
+  function enabled(env=readEnv()){
+    const value=process.env.AUTO_DEPLOY_ENABLED??env.AUTO_DEPLOY_ENABLED??'true';
+    return !FALSE_VALUES.has(String(value).trim().toLowerCase());
+  }
   function repository(env=readEnv()){
     const raw=String(env.DEPLOY_GITHUB_REPO??'').trim();
     const match=raw.match(/^https:\/\/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?\/?$/);
@@ -59,13 +62,41 @@ function createAutoDeploy(options){
     const child=spawn(deployCommand[0],deployCommand.slice(1),{detached:true,stdio:'ignore',env:{...process.env,DEPLOY_REQUESTED_SHA:sha,DEPLOY_SOURCE:'github-push'}});
     child.unref();
   }
-  async function api(apiPath,init={},env=readEnv()){
+  async function api(apiPath,init={},env=readEnv(),permissionHint='Token needs repository Webhooks: write permission.'){
     const token=String(env.DEPLOY_GITHUB_TOKEN??'').trim();
     if(!token)throw new Error('DEPLOY_GITHUB_TOKEN is required to register the auto-deploy webhook.');
     const response=await fetch(`https://api.github.com${apiPath}`,{...init,headers:{Accept:'application/vnd.github+json',Authorization:`Bearer ${token}`,'Content-Type':'application/json','User-Agent':'games-portal-auto-deploy','X-GitHub-Api-Version':'2022-11-28',...(init.headers||{})}});
-    if(!response.ok){const text=await response.text();const hint=response.status===403?' Token needs repository Webhooks: write permission.':'';throw new Error(`GitHub webhook API returned HTTP ${response.status}: ${text.slice(0,300)}.${hint}`);}
+    if(!response.ok){const text=await response.text();const hint=response.status===403?` ${permissionHint}`:'';throw new Error(`GitHub webhook API returned HTTP ${response.status}: ${text.slice(0,300)}.${hint}`);}
     if(response.status===204)return null;return response.json();
   }
+  function readJsonObject(file){
+    try{const parsed=JSON.parse(fs.readFileSync(file,'utf8'));return parsed&&typeof parsed==='object'&&!Array.isArray(parsed)?parsed:{};}catch{return {};}
+  }
+  async function pollOnce(){
+    const env=readEnv();
+    if(!enabled(env)){writeStatus({pollState:'disabled',pollCheckedAt:new Date().toISOString(),pollError:''});return;}
+    if(fs.existsSync(dataPath('deploy.lock'))){writeStatus({pollState:'waiting',pollCheckedAt:new Date().toISOString(),pollError:''});return;}
+    let repo='';
+    try{
+      repo=repository(env);const targetBranch=branch(env);
+      const payload=await api(`/repos/${repo}/commits/${encodeURIComponent(targetBranch)}`,{},env,'Token needs repository Contents: read permission for automatic deployment polling.');
+      const headSha=String(payload&&payload.sha||'').trim().toLowerCase();
+      if(!/^[0-9a-f]{40}$/.test(headSha))throw new Error('GitHub did not return a valid branch-head SHA.');
+      const deployed=readJsonObject(dataPath('deployed-version.json')),deployStatus=readJsonObject(dataPath('deploy-status.json'));
+      const deployedSha=typeof deployed.revision==='string'?deployed.revision.toLowerCase():'';
+      const failedSha=typeof deployStatus.failedRevision==='string'?deployStatus.failedRevision.toLowerCase():'';
+      writeStatus({pollState:'active',pollCheckedAt:new Date().toISOString(),pollHeadSha:headSha,pollError:'',repository:repo,branch:targetBranch});
+      if(headSha===deployedSha||headSha===failedSha)return;
+      requestDeploy(headSha);
+    }catch(error){writeStatus({pollState:'error',pollCheckedAt:new Date().toISOString(),pollError:error instanceof Error?error.message:String(error),repository:repo||undefined});}
+  }
+  function startPolling(){
+    const env=readEnv();
+    if(!enabled(env)){writeStatus({pollState:'disabled',pollError:''});return;}
+    writeStatus({pollState:'starting',pollError:''});
+    const timer=setInterval(()=>{void pollOnce();},60_000);timer.unref();
+  }
+
   async function register(){
     const env=readEnv();
     if(!enabled(env)){writeStatus({enabled:false,webhookState:'disabled',error:''});return;}
@@ -99,6 +130,7 @@ function createAutoDeploy(options){
     writeStatus({lastWebhookAt:new Date().toISOString(),lastWebhookSha:sha,lastEvent:'push'});requestDeploy(sha);reply(res,202,{ok:true,commit:sha});return true;
   }
 
+  startPolling();
   return {handle,register};
 }
 

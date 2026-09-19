@@ -8,6 +8,7 @@ import os
 import pwd
 import re
 import shutil
+import socket
 import subprocess
 import tarfile
 import time
@@ -82,6 +83,75 @@ def run(command: list[str], cwd: Path, env: dict[str, str], log) -> None:
         raise RuntimeError(f"Command failed ({result.returncode}): {' '.join(command)}")
 
 
+def _free_loopback_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+        listener.bind(("127.0.0.1", 0))
+        return int(listener.getsockname()[1])
+
+
+def _json_response(url: str, timeout: float = 2.0) -> dict[str, object] | None:
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as response:
+            if response.status != 200:
+                return None
+            payload = json.load(response)
+        return payload if isinstance(payload, dict) else None
+    except Exception:
+        return None
+
+
+def _runtime_probes_ok(base_url: str) -> bool:
+    health = _json_response(base_url + "/api/health")
+    session = _json_response(base_url + "/api/account/session")
+    return bool(
+        health
+        and health.get("ok") is True
+        and health.get("service") == "games-portal"
+        and session
+        and isinstance(session.get("authenticated"), bool)
+        and isinstance(session.get("roles"), list)
+    )
+
+
+def smoke_candidate(candidate: Path, env: dict[str, str], log) -> None:
+    port = _free_loopback_port()
+    smoke_env = {
+        **env,
+        "HOST": "127.0.0.1",
+        "PORT": str(port),
+        "GAMES_PORTAL_ROOT": str(candidate),
+        "AUTO_DEPLOY_ENABLED": "false",
+    }
+    process = subprocess.Popen(
+        ["node", "index.cjs"],
+        cwd=candidate / "server",
+        env=smoke_env,
+        stdout=log,
+        stderr=subprocess.STDOUT,
+        text=True,
+        start_new_session=True,
+    )
+    try:
+        base_url = f"http://127.0.0.1:{port}"
+        for _ in range(30):
+            if process.poll() is not None:
+                raise RuntimeError(f"Candidate server exited during smoke test ({process.returncode}).")
+            if _runtime_probes_ok(base_url):
+                log.write("Candidate runtime smoke test passed.\n")
+                log.flush()
+                return
+            time.sleep(0.5)
+        raise RuntimeError("Candidate server did not pass runtime smoke probes.")
+    finally:
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
+
+
 def validate_candidate(candidate: Path, env: dict[str, str], log) -> None:
     for name in MANAGED:
         if not (candidate / name).exists():
@@ -91,17 +161,24 @@ def validate_candidate(candidate: Path, env: dict[str, str], log) -> None:
             run(["/usr/bin/python3", "-m", "py_compile", str(file)], candidate, env, log)
     for file in sorted((candidate / "server").glob("*.cjs")):
         run(["node", "--check", str(file)], candidate / "server", env, log)
+    admin_script = candidate / "admin" / "admin.js"
+    if admin_script.exists():
+        run(["node", "--check", str(admin_script)], candidate / "admin", env, log)
     ecosystem = candidate / "deploy" / "ecosystem.config.cjs"
     if ecosystem.exists():
         run(["node", "--check", str(ecosystem)], candidate, env, log)
-    if not (candidate / "public" / "index.html").exists():
-        raise RuntimeError("Candidate public portal is missing public/index.html.")
-    if not (candidate / "admin" / "index.html").exists():
-        raise RuntimeError("Candidate admin portal is missing admin/index.html.")
+    public_index = candidate / "public" / "index.html"
+    admin_index = candidate / "admin" / "index.html"
+    if not public_index.exists() or public_index.stat().st_size < 256:
+        raise RuntimeError("Candidate public portal is missing or incomplete public/index.html.")
+    if not admin_index.exists() or admin_index.stat().st_size < 256:
+        raise RuntimeError("Candidate admin portal is missing or incomplete admin/index.html.")
+    smoke_candidate(candidate, env, log)
 
 
-def download_candidate(root: Path, owner: str, repo: str, branch: str, token: str, uid: int, gid: int) -> tuple[Path, str, Path]:
-    with urllib.request.urlopen(request(f"https://api.github.com/repos/{owner}/{repo}/commits/{branch}", token), timeout=30) as response:
+def download_candidate(root: Path, owner: str, repo: str, branch: str, token: str, uid: int, gid: int, requested_revision: str = "") -> tuple[Path, str, Path]:
+    target = requested_revision if re.fullmatch(r"[0-9a-f]{40}", requested_revision) else branch
+    with urllib.request.urlopen(request(f"https://api.github.com/repos/{owner}/{repo}/commits/{target}", token), timeout=30) as response:
         revision = json.load(response)["sha"]
     if not isinstance(revision, str) or not re.fullmatch(r"[0-9a-f]{40}", revision):
         raise RuntimeError("GitHub did not return a valid commit SHA.")
@@ -109,7 +186,7 @@ def download_candidate(root: Path, owner: str, repo: str, branch: str, token: st
     shutil.rmtree(staging, ignore_errors=True)
     staging.mkdir(parents=True)
     archive = staging / "repo.tgz"
-    with urllib.request.urlopen(request(f"https://api.github.com/repos/{owner}/{repo}/tarball/{branch}", token), timeout=90) as response, archive.open("wb") as output:
+    with urllib.request.urlopen(request(f"https://api.github.com/repos/{owner}/{repo}/tarball/{revision}", token), timeout=90) as response, archive.open("wb") as output:
         shutil.copyfileobj(response, output)
     source = staging / "source"
     source.mkdir()
@@ -175,14 +252,18 @@ def restart_pm2(root: Path, username: str, env: dict[str, str], log) -> None:
     run(["sudo", "-u", username, "pm2", "save"], root, env, log)
 
 
-def health_ok() -> bool:
+def health_ok(root: Path) -> bool:
     stable = 0
-    for _ in range(30):
-        try:
-            with urllib.request.urlopen(HEALTH_URL, timeout=2) as response:
-                good = response.status == 200
-        except Exception:
-            good = False
+    for _ in range(60):
+        public_index = root / "public" / "index.html"
+        admin_index = root / "admin" / "index.html"
+        static_ok = (
+            public_index.exists()
+            and public_index.stat().st_size >= 256
+            and admin_index.exists()
+            and admin_index.stat().st_size >= 256
+        )
+        good = static_ok and _runtime_probes_ok("http://127.0.0.1:3010")
         stable = stable + 1 if good else 0
         if stable >= 3:
             return True
@@ -240,16 +321,20 @@ def main() -> int:
     lock_path = root / "data" / "deploy.lock"
     requested_path = root / "data" / "deploy-requested-sha"
     started = now()
+    source = os.environ.get("DEPLOY_SOURCE", "manual")
     revision: str | None = None
     trigger_revision = os.environ.get("DEPLOY_REQUESTED_SHA", "").strip().lower()
     if not re.fullmatch(r"[0-9a-f]{40}", trigger_revision):
+        trigger_revision = ""
+    if source == "manual":
+        requested_path.unlink(missing_ok=True)
         trigger_revision = ""
     staging: Path | None = None
     switched = False
     status: dict[str, object] = {
         "state": "running", "action": args.action, "stage": "starting",
         "message": "Starting guarded deployment.", "startedAt": started,
-        "updatedAt": started, "steps": [], "source": os.environ.get("DEPLOY_SOURCE", "manual"),
+        "updatedAt": started, "steps": [], "source": source,
     }
 
     def stage(name: str, message: str) -> None:
@@ -281,7 +366,7 @@ def main() -> int:
                 owner, repo = repo_parts(app_env.get("DEPLOY_GITHUB_REPO", ""))
                 target_branch = app_env.get("DEPLOY_GITHUB_BRANCH", "main").strip() or "main"
                 token = app_env.get("DEPLOY_GITHUB_TOKEN", "").strip()
-                candidate, revision, staging = download_candidate(root, owner, repo, target_branch, token, uid, gid)
+                candidate, revision, staging = download_candidate(root, owner, repo, target_branch, token, uid, gid, trigger_revision)
                 stage("validate", f"Validating candidate {revision[:12]} before changing live files.")
                 validate_candidate(candidate, process_env, log)
                 stage("switch", "Candidate passed validation; switching prepared release into place.")
@@ -292,12 +377,12 @@ def main() -> int:
 
             stage("activate", "Restarting Games Portal administration service and requiring stable health.")
             restart_pm2(root, args.run_as, process_env, log)
-            if not health_ok():
+            if not health_ok(root):
                 if switched:
                     stage("rollback", "Candidate failed health checks; restoring previous release.")
                     restore_previous(root, uid, gid)
                     restart_pm2(root, args.run_as, process_env, log)
-                    if health_ok():
+                    if health_ok(root):
                         raise RuntimeError("Candidate failed health checks and was rolled back; previous release is healthy.")
                     raise RuntimeError("Candidate failed health checks and rollback did not restore a healthy server.")
                 raise RuntimeError("Restarted portal did not pass health checks.")
@@ -317,7 +402,7 @@ def main() -> int:
                 restore_previous(root, uid, gid)
                 with log_path.open("a", encoding="utf-8") as log:
                     restart_pm2(root, args.run_as, process_env, log)
-                if health_ok():
+                if health_ok(root):
                     error = RuntimeError(f"{error} Previous release was restored and is healthy.")
                 else:
                     error = RuntimeError(f"{error} Rollback was attempted but health did not recover.")
