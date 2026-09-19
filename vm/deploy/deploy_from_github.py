@@ -97,7 +97,7 @@ def _backup_sqlite(source: Path, destination: Path) -> bool:
     return True
 
 
-def prepare_candidate_runtime_data(root: Path, candidate: Path, log) -> None:
+def prepare_candidate_runtime_data(root: Path, candidate: Path, log, username: str) -> None:
     source = root / "data" / DATABASE_FILE
     destination = candidate / "data" / DATABASE_FILE
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -106,6 +106,8 @@ def prepare_candidate_runtime_data(root: Path, candidate: Path, log) -> None:
     else:
         log.write("No live Games Portal database exists yet; candidate smoke test will use a fresh isolated database.\n")
     log.flush()
+    account = pwd.getpwnam(username)
+    chown_tree(destination.parent, account.pw_uid, account.pw_gid)
 
 
 def _free_loopback_port() -> int:
@@ -138,7 +140,7 @@ def _runtime_probes_ok(base_url: str) -> bool:
     )
 
 
-def smoke_candidate(candidate: Path, env: dict[str, str], log) -> None:
+def smoke_candidate(candidate: Path, env: dict[str, str], log, username: str) -> None:
     port = _free_loopback_port()
     smoke_env = {
         **env,
@@ -148,9 +150,11 @@ def smoke_candidate(candidate: Path, env: dict[str, str], log) -> None:
         "AUTO_DEPLOY_ENABLED": "false",
     }
     process = subprocess.Popen(
-        ["node", "index.cjs"],
+        ["sudo", "-u", username, "env",
+         "HOST=127.0.0.1", f"PORT={port}", f"GAMES_PORTAL_ROOT={candidate}",
+         "AUTO_DEPLOY_ENABLED=false", "node", "index.cjs"],
         cwd=candidate / "server",
-        env=smoke_env,
+        env=env,
         stdout=log,
         stderr=subprocess.STDOUT,
         text=True,
@@ -177,7 +181,7 @@ def smoke_candidate(candidate: Path, env: dict[str, str], log) -> None:
                 process.wait(timeout=5)
 
 
-def validate_candidate(root: Path, candidate: Path, env: dict[str, str], log) -> None:
+def validate_candidate(root: Path, candidate: Path, env: dict[str, str], log, username: str) -> None:
     for name in MANAGED:
         if not (candidate / name).exists():
             raise RuntimeError(f"Downloaded repository is missing required vm/{name}.")
@@ -198,8 +202,8 @@ def validate_candidate(root: Path, candidate: Path, env: dict[str, str], log) ->
         raise RuntimeError("Candidate public portal is missing or incomplete public/index.html.")
     if not admin_index.exists() or admin_index.stat().st_size < 256:
         raise RuntimeError("Candidate admin portal is missing or incomplete admin/index.html.")
-    prepare_candidate_runtime_data(root, candidate, log)
-    smoke_candidate(candidate, env, log)
+    prepare_candidate_runtime_data(root, candidate, log, username)
+    smoke_candidate(candidate, env, log, username)
 
 
 def download_candidate(root: Path, owner: str, repo: str, branch: str, token: str, uid: int, gid: int, requested_revision: str = "") -> tuple[Path, str, Path]:
@@ -433,7 +437,7 @@ def main() -> int:
                 token = app_env.get("DEPLOY_GITHUB_TOKEN", "").strip()
                 candidate, revision, staging = download_candidate(root, owner, repo, target_branch, token, uid, gid, trigger_revision)
                 stage("validate", f"Validating candidate {revision[:12]} before changing live files.")
-                validate_candidate(root, candidate, process_env, log)
+                validate_candidate(root, candidate, process_env, log, args.run_as)
                 stage("switch", "Candidate passed validation; switching prepared release into place.")
                 switch_release(root, candidate, uid, gid)
                 switched = True
