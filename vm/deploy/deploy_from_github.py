@@ -9,6 +9,7 @@ import pwd
 import re
 import shutil
 import socket
+import sqlite3
 import subprocess
 import tarfile
 import time
@@ -16,6 +17,8 @@ import urllib.request
 from pathlib import Path
 
 MANAGED = ("public", "admin", "server", "deploy", "install_server.py", ".env.example")
+PM2_NAME = "games-portal-admin"
+DATABASE_FILE = "platform.sqlite"
 HEALTH_URL = "http://127.0.0.1:3010/api/health"
 FOLLOW_UP_COMMAND = "/usr/local/sbin/games-portal-web-deploy"
 INSTALLED_HELPER = Path("/usr/local/lib/games-portal/deploy_from_github.py")
@@ -75,12 +78,34 @@ def chown_tree(path: Path, uid: int, gid: int) -> None:
                 os.chown(child, uid, gid)
 
 
-def run(command: list[str], cwd: Path, env: dict[str, str], log) -> None:
+def run(command: list[str], cwd: Path, env: dict[str, str], log, *, check: bool = True) -> int:
     log.write("+ " + " ".join(command) + "\n")
     log.flush()
     result = subprocess.run(command, cwd=cwd, env=env, stdout=log, stderr=subprocess.STDOUT, text=True, check=False)
-    if result.returncode:
+    if check and result.returncode:
         raise RuntimeError(f"Command failed ({result.returncode}): {' '.join(command)}")
+    return result.returncode
+
+
+def _backup_sqlite(source: Path, destination: Path) -> bool:
+    if not source.exists():
+        return False
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.unlink(missing_ok=True)
+    with sqlite3.connect(f"file:{source}?mode=ro", uri=True, timeout=10) as source_db, sqlite3.connect(destination) as destination_db:
+        source_db.backup(destination_db)
+    return True
+
+
+def prepare_candidate_runtime_data(root: Path, candidate: Path, log) -> None:
+    source = root / "data" / DATABASE_FILE
+    destination = candidate / "data" / DATABASE_FILE
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if _backup_sqlite(source, destination):
+        log.write("Candidate smoke test will use an isolated snapshot of the live Games Portal database.\n")
+    else:
+        log.write("No live Games Portal database exists yet; candidate smoke test will use a fresh isolated database.\n")
+    log.flush()
 
 
 def _free_loopback_port() -> int:
@@ -152,7 +177,7 @@ def smoke_candidate(candidate: Path, env: dict[str, str], log) -> None:
                 process.wait(timeout=5)
 
 
-def validate_candidate(candidate: Path, env: dict[str, str], log) -> None:
+def validate_candidate(root: Path, candidate: Path, env: dict[str, str], log) -> None:
     for name in MANAGED:
         if not (candidate / name).exists():
             raise RuntimeError(f"Downloaded repository is missing required vm/{name}.")
@@ -173,6 +198,7 @@ def validate_candidate(candidate: Path, env: dict[str, str], log) -> None:
         raise RuntimeError("Candidate public portal is missing or incomplete public/index.html.")
     if not admin_index.exists() or admin_index.stat().st_size < 256:
         raise RuntimeError("Candidate admin portal is missing or incomplete admin/index.html.")
+    prepare_candidate_runtime_data(root, candidate, log)
     smoke_candidate(candidate, env, log)
 
 
@@ -232,6 +258,41 @@ def switch_release(root: Path, candidate: Path, uid: int, gid: int) -> None:
         raise
 
 
+def snapshot_runtime_data(root: Path, uid: int, gid: int) -> None:
+    rollback_data = rollback_dir(root) / "runtime-data"
+    shutil.rmtree(rollback_data, ignore_errors=True)
+    rollback_data.mkdir(parents=True, exist_ok=True)
+    live = root / "data" / DATABASE_FILE
+    if _backup_sqlite(live, rollback_data / DATABASE_FILE):
+        os.chown(rollback_data / DATABASE_FILE, uid, gid)
+    else:
+        (rollback_data / ".database-absent").write_text("1\n", encoding="utf-8")
+        os.chown(rollback_data / ".database-absent", uid, gid)
+    os.chown(rollback_data, uid, gid)
+
+
+def restore_runtime_data(root: Path, uid: int, gid: int) -> None:
+    rollback_data = rollback_dir(root) / "runtime-data"
+    snapshot = rollback_data / DATABASE_FILE
+    absent = rollback_data / ".database-absent"
+    live = root / "data" / DATABASE_FILE
+    live.parent.mkdir(parents=True, exist_ok=True)
+    for suffix in ("-wal", "-shm"):
+        Path(str(live) + suffix).unlink(missing_ok=True)
+    if absent.exists():
+        live.unlink(missing_ok=True)
+        return
+    if not snapshot.exists():
+        return
+    temporary = live.with_name(f".{live.name}.rollback.{os.getpid()}")
+    temporary.unlink(missing_ok=True)
+    if not _backup_sqlite(snapshot, temporary):
+        raise RuntimeError("Rollback database snapshot is missing.")
+    os.chown(temporary, uid, gid)
+    os.replace(temporary, live)
+    os.chown(live, uid, gid)
+
+
 def restore_previous(root: Path, uid: int, gid: int) -> None:
     rollback = rollback_dir(root)
     if not rollback.exists():
@@ -245,6 +306,10 @@ def restore_previous(root: Path, uid: int, gid: int) -> None:
         if old.exists() or old.is_symlink():
             os.replace(old, live)
             chown_tree(live, uid, gid)
+
+
+def stop_pm2(root: Path, username: str, env: dict[str, str], log) -> None:
+    run(["sudo", "-u", username, "pm2", "stop", PM2_NAME], root, env, log, check=False)
 
 
 def restart_pm2(root: Path, username: str, env: dict[str, str], log) -> None:
@@ -368,10 +433,11 @@ def main() -> int:
                 token = app_env.get("DEPLOY_GITHUB_TOKEN", "").strip()
                 candidate, revision, staging = download_candidate(root, owner, repo, target_branch, token, uid, gid, trigger_revision)
                 stage("validate", f"Validating candidate {revision[:12]} before changing live files.")
-                validate_candidate(candidate, process_env, log)
+                validate_candidate(root, candidate, process_env, log)
                 stage("switch", "Candidate passed validation; switching prepared release into place.")
                 switch_release(root, candidate, uid, gid)
                 switched = True
+                snapshot_runtime_data(root, uid, gid)
                 for static in (root / "public", root / "admin"):
                     subprocess.run(["chmod", "-R", "a+rX", str(static)], check=True)
 
@@ -379,8 +445,10 @@ def main() -> int:
             restart_pm2(root, args.run_as, process_env, log)
             if not health_ok(root):
                 if switched:
-                    stage("rollback", "Candidate failed health checks; restoring previous release.")
+                    stage("rollback", "Candidate failed health checks; restoring previous release and runtime data.")
+                    stop_pm2(root, args.run_as, process_env, log)
                     restore_previous(root, uid, gid)
+                    restore_runtime_data(root, uid, gid)
                     restart_pm2(root, args.run_as, process_env, log)
                     if health_ok(root):
                         raise RuntimeError("Candidate failed health checks and was rolled back; previous release is healthy.")
@@ -399,8 +467,10 @@ def main() -> int:
     except Exception as error:
         if switched and "rolled back" not in str(error).lower():
             try:
-                restore_previous(root, uid, gid)
                 with log_path.open("a", encoding="utf-8") as log:
+                    stop_pm2(root, args.run_as, process_env, log)
+                    restore_previous(root, uid, gid)
+                    restore_runtime_data(root, uid, gid)
                     restart_pm2(root, args.run_as, process_env, log)
                 if health_ok(root):
                     error = RuntimeError(f"{error} Previous release was restored and is healthy.")
